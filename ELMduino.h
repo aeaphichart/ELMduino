@@ -125,7 +125,7 @@ const uint8_t AUX_INPUT_OUTPUT_SUPPORTED       = 101; // 0x65 - bit encoded
 const char   CANCEL_OBD[]          = "XXXXXXXXX\r\r\r";
 const float  KPH_MPH_CONVERT       = 0.6213711922;
 const float  RPM_CONVERT           = 0.25;
-const int8_t QUERY_LEN	           = 6;
+const int8_t QUERY_LEN	           = 4;
 const int8_t HEADER_LEN            = 4;
 const int8_t SERVICE_LEN           = 2;
 const int8_t PID_LEN               = 2;
@@ -166,7 +166,7 @@ public:
 
 private:
 	char payload[PAYLOAD_LEN] = { 0 };
-	char query[QUERY_LEN];
+	uint8_t query[QUERY_LEN];
 	uint8_t hexService[SERVICE_LEN];
 	uint8_t hexPid[PID_LEN];
 	uint8_t responseHeader[HEADER_LEN];
@@ -177,7 +177,8 @@ private:
 
 
 
-	void upper(char string[], uint8_t buflen);
+	void zeroBuff(char buff[], uint8_t buffLen);
+	void upper(uint8_t string[], uint8_t buffLen);
 	void formatQueryArray(uint16_t service, uint16_t pid);
 	void formatHeaderArray();
 	uint8_t ctoi(uint8_t value);
