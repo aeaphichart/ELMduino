@@ -23,19 +23,7 @@
 bool ELM327::begin(Stream &stream)
 {
 	elm_port = &stream;
-
-	while (!elm_port);
-
-	// wait 3 sec for the ELM327 to initialize
-	delay(3000);
-
-	// try to connect
-	while (!initializeELM())
-		delay(1000);
-	
-	delay(100);
-  
-	return true;
+	return initializeELM();
 }
 
 
@@ -123,18 +111,43 @@ void ELM327::formatQueryArray(uint16_t service, uint16_t pid)
 	query[1] = (service & 0xFF) + '0';
 	query[2] = ((pid >> 8) & 0xFF) + '0';
 	query[3] = (pid & 0xFF) + '0';
-	query[4] = '\n';
-	query[5] = '\r';
 
-	upper(query, 6);
+	upper(query, QUERY_LEN);
 }
 
 
 
 
 /*
- void ELM327::upper(char string[],
-                    uint8_t buflen)
+ void ELM327::zeroBuff(char buff[],
+                       uint8_t buffLen)
+
+ Description:
+ ------------
+  * Fills buffer with '\0' chars
+
+ Inputs:
+ -------
+  * char buff[]      - Char array
+  * uint8_t buffLen  - Length of char array
+
+ Return:
+ -------
+  * void
+*/
+void ELM327::zeroBuff(char buff[],
+                      uint8_t buffLen)
+{
+	for (uint8_t i = 0; i < buffLen; i++)
+		payload[i] = '\0';
+}
+
+
+
+
+/*
+ void ELM327::upper(uint8_t string[],
+                    uint8_t buffLen)
 
  Description:
  ------------
@@ -144,16 +157,16 @@ void ELM327::formatQueryArray(uint16_t service, uint16_t pid)
  Inputs:
  -------
   * uint8_t string[] - Char array
-  * uint8_t buflen   - Length of char array
+  * uint8_t buffLen  - Length of char array
 
  Return:
  -------
   * void
 */
-void ELM327::upper(char string[],
-                   uint8_t buflen)
+void ELM327::upper(uint8_t string[],
+                   uint8_t buffLen)
 {
-	for (uint8_t i = 0; i < buflen; i++)
+	for (uint8_t i = 0; i < buffLen; i++)
 	{
 		if (string[i] > 'Z')
 			string[i] -= 32;
@@ -266,13 +279,11 @@ bool ELM327::queryPID(uint16_t service,
 {
 	if (connected)
 	{
-		// determine the string needed to be passed to the OBD scanner to make the query
 		formatQueryArray(service, pid);
+		sendCommand((const char*)query);
 
-		// make the query
-		status = sendCommand(query);
-
-		return true;
+		if (status == ELM_SUCCESS)
+			return true;
 	}
 	
 	return false;
@@ -371,7 +382,7 @@ float ELM327::rpm()
 
  Inputs:
  -------
-  * const char *cmd - Command/query to send to ELM327
+  * const char *cmd  - Command/query to send to ELM327
 
  Return:
  -------
@@ -381,59 +392,56 @@ int8_t ELM327::sendCommand(const char *cmd)
 {
 	uint8_t counter = 0;
 
-	// flush the input buffer
 	flushInputBuff();
+	zeroBuff(payload, PAYLOAD_LEN);
 
-	// send the command with carriage return
 	elm_port->print(cmd);
-	elm_port->print('\r');
+	elm_port->write('\r');
 
-	// prime the timer
+	// prime the timeout timer
 	previousTime = millis();
 	currentTime  = previousTime;
 
-	for (byte i = 0; i < PAYLOAD_LEN; i++)
-		payload[i] = '\0';
-
 	// buffer the response of the ELM327 until either the
-	//end marker is read or a timeout has occurred
-	while ((counter < (PAYLOAD_LEN + 1)) && !timeout())
+	// end marker is read or a timeout has occurred
+	while ((counter < PAYLOAD_LEN) && !timeout())
 	{
 		if (elm_port->available())
 		{
 			payload[counter] = elm_port->read();
-
-			if (payload[counter] == '>')
-				break;
-			else
-				counter++;
+			counter++;
 		}
 	}
 
-	if (timeout())
-		return ELM_UNABLE_TO_CONNECT;
-
-	char *match;
-
-	match = strstr(payload, "UNABLE TO CONNECT");
-	if (match != NULL)
+	if (!counter)
 	{
-		for (byte i = 0; i < PAYLOAD_LEN; i++)
-			payload[i] = '\0';
-
-		return ELM_UNABLE_TO_CONNECT;
+		status = ELM_NO_RESPONSE;
+		return status;
 	}
 
-	match = strstr(payload, "NO DATA");
-	if (match != NULL)
+	if (counter == PAYLOAD_LEN)
 	{
-		for (byte i = 0; i < PAYLOAD_LEN; i++)
-			payload[i] = '\0';
-
-		return ELM_NO_DATA;
+		zeroBuff(payload, PAYLOAD_LEN);
+		status = ELM_BUFFER_OVERFLOW;
+		return status;
 	}
 
-	return ELM_SUCCESS;
+	if (strstr(payload, "UNABLE TO CONNECT") != NULL)
+	{
+		zeroBuff(payload, PAYLOAD_LEN);
+		status = ELM_UNABLE_TO_CONNECT;
+		return status;
+	}
+
+	if (strstr(payload, "NO DATA") != NULL)
+	{
+		zeroBuff(payload, PAYLOAD_LEN);
+		status = ELM_NO_DATA;
+		return status;
+	}
+
+	status = ELM_SUCCESS;
+	return status;
 }
 
 
@@ -470,10 +478,6 @@ int ELM327::findResponse(bool longResponse)
 	header[3] = query[2];
 	header[4] = query[3];
 
-	Serial.print("Received: ");
-	Serial.write((const uint8_t*)payload, PAYLOAD_LEN);
-	Serial.println();
-
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Waggressive-loop-optimizations"
@@ -504,8 +508,6 @@ int ELM327::findResponse(bool longResponse)
 		for (int i = maxIndex; i >= 0; i--)
 			response += data[i] * pow(16, (maxIndex - i));
 	}
-	else
-		Serial.println("Header NOT found");
 
 	return response;
 }
