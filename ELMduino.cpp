@@ -32,6 +32,8 @@ bool ELM327::begin(Stream &stream)
 	// try to connect
 	while (!initializeELM())
 		delay(1000);
+	
+	delay(100);
   
 	return true;
 }
@@ -77,8 +79,9 @@ bool ELM327::initializeELM()
 {
 	char *match;
 
-	flushInputBuff();
 	sendCommand("AT E0"); // echo off
+
+	delay(100);
 
 	if (sendCommand("AT SP 0") == ELM_SUCCESS) // automatic protocol
 	{
@@ -403,9 +406,12 @@ int8_t ELM327::sendCommand(const char *cmd)
 			if (payload[counter] == '>')
 				break;
 			else
-				++counter;
+				counter++;
 		}
 	}
+
+	if (timeout())
+		return ELM_UNABLE_TO_CONNECT;
 
 	char *match;
 
@@ -465,9 +471,12 @@ int ELM327::findResponse(bool longResponse)
 	header[4] = query[3];
 
 	Serial.print("Received: ");
-	Serial.write(payload, PAYLOAD_LEN);
+	Serial.write((const uint8_t*)payload, PAYLOAD_LEN);
 	Serial.println();
 
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Waggressive-loop-optimizations"
 	for (byte i = 0; i < (PAYLOAD_LEN + 5); i++)
 	{
 		if (payload[i] == header[0] &&
@@ -477,6 +486,7 @@ int ELM327::findResponse(bool longResponse)
 			payload[i + 4] == header[4])
 			dataLoc = i + 6;
 	}
+#pragma GCC diagnostic pop
 
 	if (dataLoc > 0)
 	{
